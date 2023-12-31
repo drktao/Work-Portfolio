@@ -1,0 +1,246 @@
+---
+title: "North Carolina Voter Turnout Analysis"
+author: "Derek Tao"
+output: pdf_document
+geometry: "left=2cm,right=2cm,top=2cm,bottom=2cm"
+---
+<style type="text/css">
+  body{
+  font-size: 11pt;
+}
+</style>
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(lme4)
+library(brms)
+library(rstan)
+library(tidybayes)
+library(coda)
+library(pROC)
+library(ROCR)
+```
+
+## Introduction
+Voter turnout data is one of the most valuable tools for measuring the health of a democratic society. By examining disparities in turnout among different demographic groups, we can obtain valuable insights into social equality, civic engagement, and representation within a society. This information is important for both citizens to assess the quality of their political system as well as politicians to assess the effectiveness of their campaigns. In this case study, I will examine data from the North Carolina State Board of Elections, which has provided voter registration and turnout data for North Carolina voters in the 2020 general elections. I will use a hierarchical model to examine differences in the voter turnouts of various demographic groups and party affiliations. I will also investigate if voter turnout differed depending on the county which a voter resided in.
+
+## Data Cleaning and EDA
+There are two data files available. One contains the total number of registered voters, aggregated by county, precinct, voter tabulation district, party affiliation, race, ethnicity, sex, and age group. The other file contains the total number of people who actually voted, aggregated by the same features in addition to voting method. Prior to modeling, a few data cleaning steps are needed. The two data files must be merged in order to observe aggregated counts of registered voters and actual voters in the same data set. To do this, I first aggregated both data files by county, age, party affiliation, race, ethnicity, and sex. I then merged the data set containing total registered voters with the data set containing total actual voters using a left join. Finally, I took a random sample of 30 counties and subset the merged data to observations from only these 30 counties. These 30 counties include Pender, Henderson, Haywood, Onslow, Yancey, Polk, Brunswick, Union, Greene, Pasquotank, Ashe, Nash, Hertford, Sampson, Randolph, Robeson, Mcdowell, Davidson, Yadkin, Currituck, Bladen, Avery, Franklin, Wayne, Buncombe, Mecklenburg, Duplin, New Hanover, Camden, and Johnston.
+
+When performing some basic EDA, I examined the ratio of actual voters to registered voters across different counties, demographic groups, and party affiliations. In short, it appears that there are some disparities in voter turnout for all of our features of interest (county, age, party, race, ethnicity, sex). We can also see that there are some potential interactions present between some of the features, particularly for sex/party and age/party. As a result of this, and in order to address all of our questions of interest, we should include these covariates and interactions in any final model we decide on. See figures 1-8 in the appendix for EDA plots. 
+
+## Model Building
+We can frame our election data as binomial count data, where we have a collection of binary trials (N), the number of successes from these trials (Y), and the vector of covariates associated with these trials (X). In this case, the trials are the total number of registered voters and the successes are how many of these registered voters actually voted in the election. Each observation in our data is a different collection of trials corresponding to a different grouping of county, demographic, and party affiliation covariates. Furthermore, we can model the probability that a registered voter within one of these groupings will actually vote using a logit() link function. More details on this will be displayed below in the final model. Finally, in order to establish a hierarchical structure in our model, we will implement a random intercept for each of the 30 counties in our data. This will allow us to address the question of whether the odds of voting differ across counties. All other covariates will remain as fixed effects.
+
+We begin by testing a frequentist approach to our model, using a GLM of the binomial family. However, this model does not converge unless I remove the interaction terms, and doing so would prevent us from answering some of our questions of interest. Adding additional interaction terms to the model also does not result in convergence. Thus, we can move on to the Bayesian logistic model approach, which I have outlined below:
+
+```{r,echo=FALSE,out.width="60%"}
+knitr::include_graphics("bayesian_model.png")
+```
+
+We can assume that individual voter registrations are independent, and that there is a common probability of voting for each individual grouping i of age, party, race, ethnicity, and sex in county j, which we denote by pi. We also include for each county a random intercept, which are independently normally distributed with mean 0 and constant variance. Additionally, we need to specify uninformative prior distributions for our fixed effects and between-county variance since we are not given any prior information on their behaviors in this study. For the fixed effects, we want the prior to center around 0 and have large variance to give significant coverage to a wide range of positive and negative values, so we choose multivariate normal. For the between-county variance, we reference lecture notes 2.6 and choose a half t prior with a large scale parameter and 1 degree of freedom.
+
+The above model converges successfully. For the sake of reducing an already large computational load (several hours of runtime), we will not add additional interaction terms to the model. This model will answer all questions of interest and will be used as our final model.
+
+## Model Assessment and Validation
+There are several methods that we can use to evaluate the quality of our model. We can start by performing convergence diagnostics. The traceplots for our model show that there is good mixing and stationarity in both of the MCMC chains for all of our parameters. Furthermore, our model summary gives Rhat values of 1.00 or 1.01 for all our covariates, indicating strong evidence for convergence. We can also use AUC-ROC to get an idea of how well our model does at correctly predicting whether an individual will vote. Our model yields an AUC of 0.6655, which is solid and far better than random guessing. Finally, we can also examine the behavior of our model residuals. Figure 9 shows a residuals vs. fitted plot, and we can see that there is some evidence of heteroscedascity in the residuals (ie. variance of residuals increases with increasing fitted values). However, this behavior is not too concerning given that there is a relatively small amount of points causing this pattern. For the vast majority of our observations, the residuals pattern is quite random.
+
+## Model Results and Interpretation
+Figure 10 in the appendix shows the posterior parameter estimates of our model, as well as the corresponding standard errors and 95% confidence intervals. With this, we can answer our questions of interest:
+
+1. How did different demographic subgroups vote in the 2020 general elections?
+
+We can examine the predicted voter turnouts of different demographic subgroups while controlling for the other demographic predictors. Starting with age group, holding all other covariates constant, we see that an individual over 66 or between 41 and 65 will have the highest odds of voting, followed by 26-40 and 18-25. Specifically, individuals in these age groups will have a exp(0.87)=2.3869 factor increase in odds of voting compared to the baseline level age group of 18-25. For party affiliation, holding all other covariates constant, we see that Democrats have the highest odds of voting, followed by Republicans, Green Party (GRE), Unaffiliated, Libertarians, and finally Constitution Party (CST). Democrats will have a exp(0.81)=2.2479 factor increase in odds of voting compared to Constitution Party voters, and a exp(0.81)/exp(0.76)=1.0513 factor increase in odds of voting compared to Republican voters. For race, holding all other covariates constant, we see that Pacific Islanders have by far the highest odds of voting, followed by White, Undesignated, Asian, Multiracial, Black, Indian, and "Other" voters. Pacific Islanders will have a exp(1.05)=2.8577 factor increase in odds of voting compared to "Other" voters, and a exp(1.05)/exp(0.13)=2.5093 factor increase in odds of voting compared to White voters! For ethnicity, holding all other covariates constant, we see that Non-Hispanics have the highest odds of voting, followed by Undesignated and Hispanic voters. Non-Hispanics will have a exp(0.37)=1.4477 factor increase in odds of voting compared to Hispanic voters. Finally, for sex, holding all other covariates constant, we see that the Undesignated sex has the highest odds of voting, followed by males and then females. Undesignated sex will have a exp(0.24)=1.2712 factor increase in odds of voting compared to females, while males will have a exp(0.04)=1.0408 factor increase in odds of voting compared to females. 
+
+2. Did the overall probability or odds of voting differ by county in 2020? Which counties differ the most from other counties?
+
+We can answer this question by examining the posterior treatment effects of each individual county on odds of voting (see Figure 11). From our 30 sampled counties, we can definitely conclude that there are noticeable differences in predicted odds of voting across different counties. The two counties that stand out the most are Onslow and Robeson; individuals from these two counties have by far the lowest odds of voting, holding all demographic and party affiliation characteristics constant. Pasquotank and Polk are two other counties with relatively low predicted voter turnout by our model. As for counties with high odds of voting, we see that Franklin, Yadkin, and Greene are the top three.
+
+3. How did the turnout rates differ between females and males for the different party affiliations?
+
+To answer this question, we want to look at the interaction term between sex and party. Interestingly, holding all other covariates constant, the only parties where the odds of voting are marginally higher for males than females are the Libertarian Party and Constitution Party, despite the overall odds of voting being higher for males than females, as seen before. The party with the highest odds of voting for females relative to males is the Democratic Party, followed by Unaffiliated, Green Party, and Republicans. 
+
+4. How did the turnout rates differ between age groups for the different party affiliations?
+
+To answer this question, we want to look at the interaction term between age group and party. We can see that every party follows the general trend of increasing odds of voting with increasing age except for the Green Party, which has a higher odds of voting for the 26-40 age group than the 41-65 age group. We can also see that there are larger disparities in odds of voting between older age groups and younger age groups for the Democratic Party, Republican Party, and Unaffiliated, and smaller disparities in odds of voting between older age groups and younger age groups for the Green Party, Libertarians, and Constitution Party. 
+
+## Potential Limitations
+
+The main limitation in our analysis is the computational load during model runs. Because the Bayesian model takes many hours to run, under the current time constraints it is unfeasible to do model comparisons. Thus, we were unable to determine the significance of additional interaction terms outside of those pertinent to our questions of interest. Another limitation of our model is that we can only judge differences in odds of voting for a subset of all counties in North Carolina. Again, if we were to implement random intercepts for all of the counties in the data, the computational load would likely be too much. Another limitation with the data is that the age demographic is not continuous, but rather separated into four age groups. Continuous age data would likely give more insightful model results because we would be able to establish a more precise trend between age and odds of voting. With our current setup, we merely have arbitrary cutoffs for the age groups that may be hiding some underlying trends in the data. 
+
+## Code/Figure Appendix
+```{r}
+registered<-read.delim(file='voter_stats_20201103.txt')
+voted<-read.delim(file='history_stats_20201103.txt')
+```
+
+```{r}
+#aggregation and merging
+aggregated_voted <- aggregate(voted$total_voters,list(county_desc=voted$county_desc,
+                                                      age=voted$age,
+                                                      party_cd=voted$voted_party_cd,
+                                                      race_code=voted$race_code,
+                                                      ethnic_code=voted$ethnic_code,
+                                                      sex_code=voted$sex_code),sum)
+names(aggregated_voted)[names(aggregated_voted) == 'x'] <- 'total_voted'
+aggregated_registered<-aggregate(registered$total_voters,list(county_desc=registered$county_desc,
+                                                      age=registered$age,
+                                                      party_cd=registered$party_cd,
+                                                      race_code=registered$race_code,
+                                                      ethnic_code=registered$ethnic_code,
+                                                      sex_code=registered$sex_code),sum)
+names(aggregated_registered)[names(aggregated_registered) == 'x'] <- 'total_registered'
+merged<-aggregated_registered%>%left_join(aggregated_voted,by=c("county_desc",
+                                          "party_cd","race_code","ethnic_code",
+                                          "sex_code","age"))
+```
+
+```{r}
+#county sampling
+set.seed(422)
+all_counties<-unique(c(unique(registered$county_desc),unique(voted$county_desc)))
+subset<-sample(all_counties,size=30)
+sub_df<-merged[merged$county_desc %in% subset,]
+```
+
+```{r}
+#cleaning
+sub_df[is.na(sub_df)] <- 0
+sub_df$total_voted[which(sub_df$total_registered-sub_df$total_voted<0)]<-sub_df$total_registered[which(sub_df$total_registered-sub_df$total_voted<0)]
+```
+
+```{r}
+#EDA
+sub_df$turnout<-sub_df$total_voted/sub_df$total_registered
+sub_df%>%ggplot(aes(x=county_desc,y=turnout))+geom_boxplot()+
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5, hjust = 1))+
+  labs(title="Voter turnouts by county",x='County',y="Turnout",caption="Figure 1")
+sub_df%>%ggplot(aes(x=age,y=turnout))+geom_boxplot()+
+  labs(title="Voter turnouts by age group",x='Age group',y="Turnout",caption="Figure 2")
+sub_df%>%ggplot(aes(x=party_cd,y=turnout))+geom_boxplot()+
+  labs(title="Voter turnouts by party",x='Party',y="Turnout",caption="Figure 3")
+sub_df%>%ggplot(aes(x=race_code,y=turnout))+geom_boxplot()+
+  labs(title="Voter turnouts by race",x='Race',y="Turnout",caption="Figure 4")
+sub_df%>%ggplot(aes(x=ethnic_code,y=turnout))+geom_boxplot()+
+  labs(title="Voter turnouts by ethnicity",x='Ethnicity',y="Turnout",caption="Figure 5")
+sub_df%>%ggplot(aes(x=sex_code,y=turnout))+geom_boxplot()+
+  labs(title="Voter turnouts by sex",x='Sex',y="Turnout",caption="Figure 6")
+sub_df%>%ggplot(aes(x=sex_code,y=turnout))+geom_boxplot()+
+  labs(title="Voter turnouts by sex for each party affiliation",
+       x='Sex',y="Turnout",caption="Figure 7")+facet_grid(~party_cd)
+sub_df%>%ggplot(aes(x=age,y=turnout))+geom_boxplot()+
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5, hjust = 1))+
+  labs(title="Voter turnouts by age group for each party affiliation",
+       x='Age Group',y="Turnout",caption="Figure 8")+facet_grid(~party_cd)
+```
+
+
+```{r,eval=FALSE}
+#frequentist GLM with interactions
+fit0 <- glmer(cbind(total_voted, total_registered-total_voted) ~age +party_cd +
+              race_code+ethnic_code+sex_code+age*party_cd+sex_code*party_cd+(1|county_desc), 
+            data=sub_df, family=binomial())
+summary(fit0)
+```
+
+```{r,eval=FALSE}
+#frequentist GLM with no interactions
+fit1 <- glmer(cbind(total_voted, total_registered-total_voted) ~age +party_cd +
+              race_code+ethnic_code+sex_code+(1|county_desc), 
+            data=sub_df, family=binomial())
+summary(fit1)
+```
+
+```{r,eval=FALSE}
+#frequentist GLM with more interactions
+fit2 <- glmer(cbind(total_voted, total_registered-total_voted) ~age +party_cd +
+              race_code+ethnic_code+sex_code+age*party_cd+sex_code*party_cd+
+              race_code*sex_code+age_code*sex_code+(1|county_desc), 
+            data=sub_df, family=binomial())
+summary(fit2)
+```
+
+```{r,eval=FALSE}
+#Bayesian logistic model
+fit3<-brm(formula='total_voted|trials(total_registered)~age+party_cd+race_code+
+ethnic_code+sex_code+age*party_cd+sex_code*party_cd+(1|county_desc)',
+data=sub_df,family=binomial(link='logit'), prior=c(
+  set_prior('normal(0,7)',class='Intercept'),
+  set_prior('normal(0,7)',class='b'),
+  set_prior('student_t(1,0,10)',class='sd')
+),
+iter=2000,seed=422,file='final_model',cores=getOption("mc.cores", 1), chains=2,
+silent=0
+)
+```
+
+```{r}
+final_model<-readRDS('final_model.rds')
+```
+`
+```{r}
+#traceplots
+plot(final_model,ask=FALSE)
+```
+
+```{r}
+#model summary
+summary(final_model)
+```
+
+```{r}
+#compute model AUC
+fitted<-fitted(final_model)
+est_p<-fitted[,'Estimate']/sub_df$total_registered
+full_vote<-sapply(1:nrow(sub_df),function(i){
+  voters<-rep(1,sub_df$total_voted[i])
+  nonvoters<-rep(0,sub_df[i,'total_registered']-sub_df$total_voted[i])
+  counts<-c(voters,nonvoters)
+})
+full_vote<-unlist(full_vote)
+preds<-rep(est_p,sub_df$total_registered)
+preds<-prediction(preds,full_vote)
+
+auc<-performance(preds,measure='auc')
+auc@y.values[[1]]
+```
+
+```{r}
+#residual vs fitted plot
+residual_df <- data.frame(
+  Fitted_Values = fitted(final_model),
+  Residuals = residuals(final_model)
+)
+
+ggplot(residual_df, aes(x = Fitted_Values.Estimate, y = Residuals.Estimate)) +
+  geom_point() +
+  labs(
+    title = "Residuals vs Fitted Values",
+    x = "Fitted Values",
+    y = "Residuals",
+    caption = "Figure 9"
+  )
+```
+
+```{r}
+#posterior parameter coefficient estimates
+summary(final_model)$fixed[,c(1,2,3,4)]%>%
+  knitr::kable(caption="Figure 10: Posterior Parameter Estimates and 95% Confidence Intervals", digits=4)
+```
+
+
+```{r}
+#county random effects
+final_model %>%  
+  spread_draws(r_county_desc[county_desc,]) %>%  
+  median_qi(`Group Effects` = r_county_desc) %>%  
+  ggplot(aes(y = county_desc, x = `Group Effects`, xmin = .lower, xmax = .upper)) +  
+  geom_pointinterval(orientation = "horizontal")+
+  labs(y='County',title='County treatment effects on odds of voting',
+       caption='Figure 11')
+```
+
+
+
+
