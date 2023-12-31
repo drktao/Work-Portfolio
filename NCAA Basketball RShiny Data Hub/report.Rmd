@@ -1,6 +1,6 @@
 ---
 title: ""
-subtitle: "Sta 523 - Final Project"
+subtitle: "NCAA Basketball RShiny App Data Hub"
 format: 
   html:
     self-contained: true
@@ -24,10 +24,10 @@ In this project, we want to present the information of the NCAA Basketball games
 
 
 
-codes for web-scraping: get_df.R
+codes for web-scraping: web_scrape.R
 results for web-scraping: conference_list.csv, final_table.csv, player_data.csv
 codes for Shiny app: ShinyApp.R,style.css
-write-up: project.Rmd
+write-up: report.Rmd
 tutorials: pictures in write-up
 
 ## Methods / Implementation
